@@ -1,6 +1,7 @@
 {
-    "name": "${pluginName}",
-    "entry": "${pluginFile}",
-    "version": "${pluginVersion}",
-    "type": "native"
+  "entry": "${pluginFile}",
+  "name": "${pluginName}",
+  "author": "Kamenomi",
+  "version": "${pluginVersion}",
+  "type": "native"
 }

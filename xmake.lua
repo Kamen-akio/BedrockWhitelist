@@ -2,16 +2,16 @@ add_rules("mode.debug", "mode.release")
 
 add_repositories("liteldev-repo https://github.com/LiteLDev/xmake-repo.git")
 
--- add_requires("levilamina x.x.x") for a specific version
--- add_requires("levilamina develop") to use develop version
--- please note that you should add bdslibrary yourself if using dev version
 add_requires("levilamina")
+add_requires("yaml-cpp")
+add_requires("sqlite3")
+add_requires("soci")
 
 if not has_config("vs_runtime") then
     set_runtimes("MD")
 end
 
-target("my-plugin") -- Change this to your plugin name.
+target("BedrockWhitelist")
     add_cxflags(
         "/EHa",
         "/utf-8",
@@ -23,18 +23,29 @@ target("my-plugin") -- Change this to your plugin name.
         "/w44738",
         "/w45204"
     )
+
     add_defines("NOMINMAX", "UNICODE")
-    add_files("src/**.cpp")
-    add_includedirs("src")
     add_packages("levilamina")
-    add_shflags("/DELAYLOAD:bedrock_server.dll") -- To use symbols provided by SymbolProvider.
-    set_exceptions("none") -- To avoid conflicts with /EHa.
+    add_packages("yaml-cpp")
+    add_packages("sqlite3")
+    add_packages("soci")
+
+    option("WITH_SQLITE3", {default = "ON", description = "Build SOCI with SQLite3."})
+
+    add_includedirs("src")
+    add_files("src/**.cpp")
+    add_headerfiles("src/**.h")
+    
+    add_shflags("/DELAYLOAD:bedrock_server.dll")
+    set_exceptions("none")
+    
     set_kind("shared")
-    set_languages("c++20")
     set_symbols("debug")
+    set_languages("c++20")
 
     after_build(function (target)
         local plugin_packer = import("scripts.after_build")
+		local plugin_update = import("scripts.server")
 
         local tag = os.iorun("git describe --tags --abbrev=0 --always")
         local major, minor, patch, suffix = tag:match("v(%d+)%.(%d+)%.(%d+)(.*)")
@@ -49,4 +60,5 @@ target("my-plugin") -- Change this to your plugin name.
         }
         
         plugin_packer.pack_plugin(target,plugin_define)
+		plugin_update.UpdateToServer(target);
     end)
