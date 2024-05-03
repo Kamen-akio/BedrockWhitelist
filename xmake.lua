@@ -5,7 +5,6 @@ add_repositories("liteldev-repo https://github.com/LiteLDev/xmake-repo.git")
 add_requires("levilamina")
 add_requires("yaml-cpp")
 add_requires("sqlite3")
-add_requires("soci")
 
 if not has_config("vs_runtime") then
     set_runtimes("MD")
@@ -28,9 +27,7 @@ target("BedrockWhitelist")
     add_packages("levilamina")
     add_packages("yaml-cpp")
     add_packages("sqlite3")
-    add_packages("soci")
 
-    option("WITH_SQLITE3", {default = "ON", description = "Build SOCI with SQLite3."})
 
     add_includedirs("src")
     add_files("src/**.cpp")

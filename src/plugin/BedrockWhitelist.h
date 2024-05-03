@@ -6,7 +6,7 @@
 #include <fmt/compile.h>
 #include <fmt/core.h>
 
-#include <soci/soci.h>
+#include <sqlite3.h>
 #include <yaml-cpp/yaml.h>
 
 #include <ll/api/Config.h>
@@ -44,7 +44,8 @@
 #define PLUGIN_DESCRIPTION "A Plugin for BE edition white list."
 
 
-// #define CheckOriginAs(origin, blockType, entityType) e
+using std::string, std::fstream, std::istringstream;
+using std::vector;
 
 
 namespace BedrockWhiteList {
@@ -53,37 +54,52 @@ namespace BedrockWhiteList {
 namespace Utils {
 
 struct TimeUnix {
-  time_t time;
+  TimeUnix();
+  TimeUnix(time_t);
 
-  std::string ToString(){
+  time_t Time;
 
-  };
+  bool   Empty() const;
+  string ToString();
+
+  bool      operator==(long long cmpTime);
+  long long operator=(long long llTime);
 };
 
 typedef enum __tagPlayerStatus { Whitelist, Blacklist } PlayerStatus;
 
-typedef struct __tagPlayerInfo {
+struct PlayerInfo {
+  PlayerInfo();
+  PlayerInfo(
+      PlayerStatus playerStatus,
+      string       playerName,
+      string       playerUuid,
+      TimeUnix     lastTime
+  );
+
   PlayerStatus PlayerStatus;
-  std::string  PlayerName;
-  std::string  PlayerUuid;
+  string       PlayerName;
+  string       PlayerUuid;
   TimeUnix     LastTime;
-} PlayerInfo;
+
+  bool Empty() const;
+};
 
 
 class PlayerDB {
   public:
   PlayerDB();
-  PlayerDB(soci::session*);
+  PlayerDB(sqlite3*);
   ~PlayerDB();
 
   public:
   void                    SetPlayerInfo(PlayerInfo playerInfo);
-  PlayerInfo              GetPlayerInfo(std::string playerName);
-  PlayerInfo              GetPlayerInfoAsUUID(std::string playerUuid);
+  PlayerInfo              GetPlayerInfo(string playerName);
+  PlayerInfo              GetPlayerInfoAsUUID(string playerUuid);
   std::vector<PlayerInfo> GetPlayerListAsStatus(PlayerStatus status);
 
   private:
-  soci::session* m_tempSession;
+  sqlite3* m_tempSession;
 };
 }; // namespace Utils
 
@@ -94,24 +110,24 @@ class PlayerDB {
 struct PluginConfig {
   public:
   PluginConfig();
-  PluginConfig(std::string configFile);
+  PluginConfig(string configFile);
   ~PluginConfig();
 
   Utils::PlayerDB& GetSeesion();
 
   struct {
-    std::string type;
-    std::string path;
-    bool        useEncrypt;
+    string path;
+    bool   useEncrypt;
   } database{};
   struct {
     bool enableCommandblock;
   } permission{};
 
   private:
-  std::string      m_configFile{};
-  YAML::Node       m_configObject{};
-  soci::session*   m_pDatabase{nullptr};
+  string     m_configFile{};
+  YAML::Node m_configObject{};
+
+  sqlite3*         m_pDatabase{nullptr};
   Utils::PlayerDB* m_pPlayerDB{nullptr};
 };
 
@@ -147,8 +163,9 @@ class WhiteList {
   bool disable();
 
 
+  void LoadPluginConfig();
+  void RegisterPluginEvent();
   void RegisterPluginCommand();
-
 
   private:
   ll::plugin::NativePlugin& m_self;

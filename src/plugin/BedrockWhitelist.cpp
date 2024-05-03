@@ -1,14 +1,10 @@
 ﻿#include "plugin/BedrockWhitelist.h"
-using namespace soci;
 
 using namespace ll;
 using namespace BedrockWhiteList;
 
 // Debug.
 namespace fs = std::filesystem;
-
-using std::string, std::fstream, std::istringstream;
-using std::vector;
 
 
 inline static bool CheckOriginAs(
@@ -26,31 +22,302 @@ inline static bool CheckOriginAs(
 }
 
 
+static int          g_lastError{0};
+static string       g_pluginInfo{};
+static PluginConfig g_config{};
+
+
+// - - - - - - - - - - - - - - - - - Utils - - - - - - - - - - - - - - - - -
+
+
+BedrockWhiteList::Utils::PlayerInfo::PlayerInfo() {}
+
+BedrockWhiteList::Utils::PlayerInfo::PlayerInfo(
+    Utils::PlayerStatus playerStatus,
+    string              playerName,
+    string              playerUuid,
+    TimeUnix            lastTime
+) {
+  PlayerStatus = playerStatus;
+  PlayerUuid   = playerUuid;
+  PlayerName   = playerName;
+  LastTime     = lastTime;
+}
+
+bool BedrockWhiteList::Utils::PlayerInfo::Empty() const {
+  return PlayerName.empty() or PlayerUuid.empty() or LastTime.Time == NULL;
+}
+
+BedrockWhiteList::Utils::TimeUnix::TimeUnix() {}
+
+BedrockWhiteList::Utils::TimeUnix::TimeUnix(time_t time) { Time = time; }
+
+bool BedrockWhiteList::Utils::TimeUnix::Empty() const { return time == NULL; }
+
+string BedrockWhiteList::Utils::TimeUnix::ToString() { return string(); }
+
+bool BedrockWhiteList::Utils::TimeUnix::operator==(long long cmpTime) {
+  return Time == cmpTime;
+}
+
+long long BedrockWhiteList::Utils::TimeUnix::operator=(long long llTime) {
+  return Time = llTime;
+}
+
+
+// - - - - - - Player Database - - - - - -
+
+
+BedrockWhiteList::Utils::PlayerDB::PlayerDB() { m_tempSession = nullptr; }
+
+BedrockWhiteList::Utils::PlayerDB::PlayerDB(sqlite3* session) {
+  assert(session);
+
+  char* errMsg{};
+  m_tempSession = session;
+  g_lastError   = sqlite3_exec(
+      m_tempSession,
+      "CREATE TABLE IF NOT EXISTS whitelist ("
+        "player_uuid TINYTEXT NOT NULL,"
+        "player_name TINYTEXT NOT NULL,"
+        "player_last_time BIGINT NOT NULL"
+        ")",
+      nullptr,
+      nullptr,
+      &errMsg
+  );
+
+  g_lastError = sqlite3_exec(
+      m_tempSession,
+      "CREATE TABLE IF NOT EXISTS blacklist ("
+      "player_uuid TINYTEXT NOT NULL,"
+      "player_name TINYTEXT NOT NULL,"
+      "player_last_time BIGINT NOT NULL"
+      ")",
+      nullptr,
+      nullptr,
+      &errMsg
+  );
+
+  if (g_lastError != SQLITE_OK) {
+    auto err = new std::runtime_error(errMsg);
+    sqlite3_free(errMsg);
+    throw err;
+  }
+}
+
+BedrockWhiteList::Utils::PlayerDB::~PlayerDB() {
+  // Do not close it.
+  m_tempSession = nullptr;
+}
+
+void BedrockWhiteList::Utils::PlayerDB::SetPlayerInfo(PlayerInfo playerInfo) {
+  assert(m_tempSession);
+
+  char*       errMsg{};
+  const char* table = playerInfo.PlayerStatus == PlayerStatus::Whitelist
+                        ? "whitelist"
+                        : "blacklist";
+
+  g_lastError = sqlite3_exec(
+      m_tempSession,
+      fmt::format(
+          "INSERT INTO {0}(player_name, player_uuid, player_last_time) "
+          "VALUES ({1}, {2}, {3}) "
+          "ON DUPLICATE KEY UPDATE uuid = VALUES({2})",
+          table,
+          playerInfo.PlayerName.c_str(),
+          playerInfo.PlayerUuid.c_str(),
+          playerInfo.LastTime.Time
+      )
+          .c_str(),
+      nullptr,
+      nullptr,
+      &errMsg
+  );
+
+  if (g_lastError != SQLITE_OK) {
+    auto err = new std::runtime_error(errMsg);
+    sqlite3_free(errMsg);
+    throw err;
+  }
+}
+
+static int
+__GetPlayerInfo(void* pInfo, int argc, char** argv, char** chColName) {
+  auto info = static_cast<Utils::PlayerInfo*>(pInfo);
+
+  for (int i = 0; i < argc; i++) {
+    auto colName = chColName[i];
+
+    if (strcmp(colName, "player_uuid") == 0) {
+      info->PlayerUuid = argv[i];
+    }
+
+    if (strcmp(colName, "player_name") == 0) {
+      info->PlayerName = argv[i];
+    }
+
+    if (strcmp(colName, "player_last_time") == 0) {
+      info->LastTime = std::strtoll(argv[i], nullptr, 0);
+    }
+  }
+
+  return 0;
+}
+
+Utils::PlayerInfo
+BedrockWhiteList::Utils::PlayerDB::GetPlayerInfo(string playerName) {
+  assert(m_tempSession);
+
+  PlayerInfo info;
+  char*      errMsg{};
+
+  g_lastError = sqlite3_exec(
+      m_tempSession,
+      fmt::format(
+          FMT_COMPILE("SELECT * FROM whitelist WHERE player_name = {0}"),
+          playerName.c_str()
+      )
+          .c_str(),
+      __GetPlayerInfo,
+      &info,
+      &errMsg
+  );
+
+  bool isWhitelist = not info.Empty();
+
+  if (isWhitelist) {
+    return info;
+  }
+
+
+  g_lastError = sqlite3_exec(
+      m_tempSession,
+      fmt::format(
+          FMT_COMPILE("SELECT * FROM blacklist WHERE player_name = {0}"),
+          playerName.c_str()
+      )
+          .c_str(),
+      __GetPlayerInfo,
+      &info,
+      &errMsg
+  );
+
+
+  return info;
+}
+
+Utils::PlayerInfo
+BedrockWhiteList::Utils::PlayerDB::GetPlayerInfoAsUUID(string playerUuid) {
+  assert(m_tempSession);
+
+  PlayerInfo info;
+  char*      errMsg{};
+
+  g_lastError = sqlite3_exec(
+      m_tempSession,
+      fmt::format(
+          FMT_COMPILE("SELECT * FROM whitelist WHERE player_uuid = {0}"),
+          playerUuid.c_str()
+      )
+          .c_str(),
+      __GetPlayerInfo,
+      &info,
+      &errMsg
+  );
+
+  bool isWhitelist = not info.Empty();
+
+  if (isWhitelist) {
+    return info;
+  }
+
+
+  g_lastError = sqlite3_exec(
+      m_tempSession,
+      fmt::format(
+          FMT_COMPILE("SELECT * FROM blacklist WHERE player_name = {0}"),
+          playerUuid.c_str()
+      )
+          .c_str(),
+      __GetPlayerInfo,
+      &info,
+      &errMsg
+  );
+
+
+  return info;
+}
+
+vector<Utils::PlayerInfo>
+BedrockWhiteList::Utils::PlayerDB::GetPlayerListAsStatus(PlayerStatus status) {
+  assert(m_tempSession);
+
+  vector<PlayerInfo> info;
+  char*              errMsg{};
+
+  g_lastError = sqlite3_exec(
+      m_tempSession,
+      fmt::format(
+          FMT_COMPILE("SELECT * FROM {0}"),
+          status == PlayerStatus::Whitelist ? "whitlist" : "blacklist"
+      )
+          .c_str(),
+      [](void* pData, int argc, char** argv, char** chColName) -> int {
+        PlayerInfo info{};
+        auto       infoArr = static_cast<vector<PlayerInfo>*>(pData);
+
+        __GetPlayerInfo(&info, argc, argv, chColName);
+        infoArr->push_back(info);
+
+        return 0;
+      },
+      &info,
+      &errMsg
+  );
+
+  return info;
+}
+
+
+// - - - - - - - - - - - - - - - - - Core - - - - - - - - - - - - - - - - -
+
+
+// - - - - - - Plugin Config - - - - - -
+
+
 BedrockWhiteList::PluginConfig::PluginConfig() {
-  database.type                 = "";
   database.path                 = "";
   database.useEncrypt           = false;
   permission.enableCommandblock = false;
 }
 
-BedrockWhiteList::PluginConfig::PluginConfig(std::string configFile) {
+BedrockWhiteList::PluginConfig::PluginConfig(string configFile) {
+  sqlite3_initialize();
+
+
   m_configFile   = configFile;
   m_configObject = YAML::LoadFile(configFile);
 
 
   auto dbConf         = m_configObject["database"];
-  database.type       = dbConf["type"].as<std::string>();
-  database.path       = dbConf["path"].as<std::string>();
   database.useEncrypt = dbConf["useEncrypt"].as<bool>();
+  database.path       = dbConf["path"].as<string>();
 
 
   auto permissionConf = m_configObject["permission"];
   permission.enableCommandblock =
       permissionConf["enableCommandblock"].as<bool>();
 
-  m_pDatabase = new soci::session(database.type, database.path);
-  if (not m_pDatabase->is_connected()) {
-    m_pDatabase->reconnect();
+
+  g_lastError = sqlite3_open(database.path.c_str(), &m_pDatabase);
+  if (g_lastError != SQLITE_OK) {
+    throw new std::runtime_error(fmt::format(
+        FMT_COMPILE("Failed to open sqlite with error: {0} code: ({1})"),
+        sqlite3_errmsg(m_pDatabase),
+        g_lastError
+    ));
   }
 
   m_pPlayerDB = new Utils::PlayerDB(m_pDatabase);
@@ -58,16 +325,24 @@ BedrockWhiteList::PluginConfig::PluginConfig(std::string configFile) {
 
 BedrockWhiteList::PluginConfig::~PluginConfig() {
   if (m_pDatabase != nullptr) {
-    
+
     if (m_pPlayerDB != nullptr) {
       delete m_pPlayerDB;
       m_pPlayerDB = nullptr;
     }
 
-    m_pDatabase->close();
+    g_lastError = sqlite3_close(m_pDatabase);
+    if (g_lastError != SQLITE_OK) {
+      throw new std::runtime_error(fmt::format(
+          FMT_COMPILE("Failed to open sqlite with error: {0} code: ({1})"),
+          sqlite3_errmsg(m_pDatabase),
+          g_lastError
+      ));
+    }
 
-    delete m_pDatabase;
+
     m_pDatabase = nullptr;
+    sqlite3_shutdown();
   }
 
 
@@ -85,7 +360,6 @@ BedrockWhiteList::PluginConfig::~PluginConfig() {
 
 
   auto dbConf          = m_configObject["database"];
-  dbConf["type"]       = database.type;
   dbConf["path"]       = database.path;
   dbConf["useEncrypt"] = database.useEncrypt;
 
@@ -103,8 +377,7 @@ Utils::PlayerDB& BedrockWhiteList::PluginConfig::GetSeesion() {
 }
 
 
-static string       g_pluginInfo{};
-static PluginConfig g_config{};
+// - - - - - - White List Core - - - - - -
 
 
 bool BedrockWhiteList::WhiteList::load() {
@@ -157,80 +430,127 @@ bool BedrockWhiteList::WhiteList::load() {
 
 bool BedrockWhiteList::WhiteList::enable() {
 
-
+  LoadPluginConfig();
+  RegisterPluginEvent();
   RegisterPluginCommand();
 
-
-  /*  Load yaml config  */ {
-    static ushort uRetry      = 0;
-    const auto    defaultType = "sqlite3";
-
-    auto& configDir  = getSelf().getConfigDir();
-    auto  configPath = ("." / configDir / "config.yaml").string();
-    auto& dataDir    = getSelf().getDataDir();
-    auto  databasePath =
-        dataDir / fmt::format(FMT_COMPILE("whitelist.{0}.db"), defaultType);
-
-
-    if (fs::exists(dataDir) and fs::exists(configDir)) {
-      fs::create_directory(dataDir);
-      fs::create_directory(configDir);
-    }
-
-
-    if (not fs::exists(configPath)) {
-    createConfig:
-
-      // Just like open config with the openmode "w+".
-      fstream ss(configPath, std::ios::in | std::ios::out | std::ios::trunc);
-
-      if (not ss.is_open()) {
-        throw std::runtime_error("Could not create config file! ");
-      }
-
-
-      YAML::Node config;
-      {
-        // Database config.
-        YAML::Node database;
-        database["type"]       = defaultType;
-        database["path"]       = databasePath.string();
-        database["useEncrypt"] = false;
-
-        config["database"] = database;
-      }
-
-
-      {
-        YAML::Node permission;
-        permission["enableCommandblock"] = false;
-
-        config["permission"] = permission;
-      }
-
-      ss << config << std::endl;
-      ss.close();
-    }
-
-    if (uRetry > 5) {
-      throw std::runtime_error("retry too much time. ");
-    }
-
-    try {
-      g_config = PluginConfig(configPath);
-    } catch (std::exception) {
-      uRetry++;
-      getSelf().getLogger().warn(
-          "Incorrect config file, has written it. (Retry X{0})",
-          uRetry
-      );
-      goto createConfig;
-    }
-  }
   return true;
 }
 
 bool BedrockWhiteList::WhiteList::disable() { return true; }
+
+void BedrockWhiteList::WhiteList::LoadPluginConfig() {
+  static ushort uRetry = 0;
+
+  auto& dataDir      = getSelf().getDataDir();
+  auto& configDir    = getSelf().getConfigDir();
+  auto  configPath   = ("." / configDir / "config.yaml").string();
+  auto  databasePath = dataDir / "whitelist.sqlite3.db";
+
+
+  if (not(fs::exists(dataDir) and fs::exists(configDir))) {
+    fs::create_directory(dataDir);
+    fs::create_directory(configDir);
+  }
+
+
+  if (not fs::exists(configPath)) {
+  createConfig:
+
+    // Just like open config with the openmode "w+".
+    fstream ss(configPath, std::ios::in | std::ios::out | std::ios::trunc);
+
+    if (not ss.is_open()) {
+      throw std::runtime_error("Could not create config file! ");
+    }
+
+
+    YAML::Node config;
+    {
+      // Database config.
+      YAML::Node database;
+      database["path"]       = databasePath.string();
+      database["useEncrypt"] = false;
+
+      config["database"] = database;
+    }
+
+
+    {
+      YAML::Node permission;
+      permission["enableCommandblock"] = false;
+
+      config["permission"] = permission;
+    }
+
+    ss << config << std::endl;
+    ss.close();
+  }
+
+  if (uRetry > 5) {
+    throw std::runtime_error("retry too much time. ");
+  }
+
+  try {
+    g_config = PluginConfig(configPath);
+  } catch (std::exception) {
+    uRetry++;
+    getSelf().getLogger().warn(
+        "Incorrect config file, has written it. (Retry X{0})",
+        uRetry
+    );
+    goto createConfig;
+  }
+}
+
+void BedrockWhiteList::WhiteList::RegisterPluginEvent() {
+  auto& eventBus = ll::event::EventBus::getInstance();
+
+  auto playerJoinEvent =
+      ll::event::Listener<ll::event::PlayerJoinEvent>::create(
+          [](ll::event::player::PlayerJoinEvent& ev) {
+            Utils::PlayerDB& playerDB = g_config.GetSeesion();
+            auto&          player   = ev.self();
+            Logger           logger   = Logger("我要DEBUG");
+
+
+            auto playerInfo =
+                playerDB.GetPlayerInfoAsUUID(player.getUuid().asString());
+            logger.info("Player Join! {0}, 踹飞！", player.getName());
+
+            if (playerInfo.Empty()) {
+              playerDB.SetPlayerInfo(Utils::PlayerInfo(
+                  Utils::Blacklist,
+                  player.getName(),
+                  player.getUuid().asString(),
+                  -1
+              ));
+
+              player.disconnect(
+                 // "'cause you are joining first time, you is kicked! "
+              );
+
+              logger.info(
+                  "{0} 为第一次加入，已拉入黑名单且被断开连接",
+                  player.getName()
+              );
+            }
+
+            if (playerInfo.PlayerStatus == Utils::Blacklist) {
+              player.disconnect(/* fmt::format(
+                  FMT_COMPILE("You has been banned for {0} (TiemStamp)time! "),
+                  playerInfo.LastTime == -1 ? "FOREVER"
+                                            : playerInfo.LastTime.ToString()
+            )*/);
+              logger.info(
+                  "{0} 为黑名单玩家，被断开游戏连接！",
+                  player.getName()
+              );
+            }
+          }
+      );
+  eventBus.addListener(playerJoinEvent);
+}
 
 void BedrockWhiteList::WhiteList::RegisterPluginCommand() {
   const auto commandRegistry = service::getCommandRegistry();
@@ -300,150 +620,3 @@ void BedrockWhiteList::WhiteList::RegisterPluginCommand() {
 }
 
 LL_REGISTER_PLUGIN(BedrockWhiteList::WhiteList, BedrockWhiteList::instance);
-
-BedrockWhiteList::Utils::PlayerDB::PlayerDB() { m_tempSession = nullptr; }
-
-BedrockWhiteList::Utils::PlayerDB::PlayerDB(
-    soci::session* session
-) {
-  m_tempSession = session;
-  *m_tempSession << "CREATE TABLE IF NOT EXISTS whitelist ("
-                    "player_uuid TINYTEXT NOT NULL,"
-                    "player_name TINYTEXT NOT NULL,"
-                    "player_last_time BIGINT NOT NULL"
-                    ")";
-}
-
-BedrockWhiteList::Utils::PlayerDB::~PlayerDB() {
-  if (m_tempSession == nullptr) {
-    return;
-  }
-
-  // Let all change commit to session.
-  m_tempSession->commit();
-  // Do not close or delete it.
-  m_tempSession = nullptr;
-}
-
-void BedrockWhiteList::Utils::PlayerDB::SetPlayerInfo(PlayerInfo playerInfo) {
-  assert(m_tempSession);
-
-  std::string table = playerInfo.PlayerStatus == PlayerStatus::Whitelist
-                        ? "whitelist"
-                        : "blacklist";
-
-  *m_tempSession << "INSERT INTO :table(player_name, player_uuid, player_last_time)"
-                    " VALUES (:player_name, :player_uuid, :player_last_time)"
-                    " ON DUPLICATE KEY UPDATE uuid = VALUES(:uuid)",
-      into(table), use(playerInfo.PlayerName, "player_name"),
-      use(playerInfo.PlayerUuid, "player_uuid"),
-      use(playerInfo.LastTime.time, "player_last_time");
-
-
-  m_tempSession->commit();
-}
-
-static Utils::PlayerInfo
-__SetPlayerInfo(Utils::PlayerInfo info, row& result, bool isWhitelist) {
-  info.PlayerStatus = isWhitelist ? Utils::PlayerStatus::Whitelist
-                                  : Utils::PlayerStatus::Blacklist;
-
-  for (std::size_t i = 0; i != result.size(); ++i) {
-    const column_properties& props = result.get_properties(i);
-    if (props.get_name() == "player_uuid") {
-      info.PlayerUuid = result.get<std::string>(i);
-    }
-
-    if (props.get_name() == "player_name") {
-      info.PlayerName = result.get<std::string>(i);
-    }
-
-    if (props.get_name() == "player_last_time") {
-      info.LastTime = Utils::TimeUnix(result.get<long long>(i));
-    }
-  }
-
-
-  return info;
-}
-
-Utils::PlayerInfo
-BedrockWhiteList::Utils::PlayerDB::GetPlayerInfo(string playerName) {
-  assert(m_tempSession);
-
-  PlayerInfo info;
-  row        result;
-  bool       isWhitelist = false;
-
-
-  *m_tempSession << "SELECT * FROM whitelist WHERE player_name = :player_name",
-      into(result), use(playerName, "player_name");
-
-  if (m_tempSession->got_data()) {
-    isWhitelist = true;
-    goto processResult;
-  }
-
-
-  *m_tempSession << "SELECT * FROM blacklist WHERE player_name = :player_name",
-      into(result), use(playerName, "player_name");
-
-
-  if (!m_tempSession->got_data()) {
-    return info;
-  }
-
-
-processResult:
-  return __SetPlayerInfo(info, result, isWhitelist);
-}
-
-Utils::PlayerInfo
-BedrockWhiteList::Utils::PlayerDB::GetPlayerInfoAsUUID(string playerUuid) {
-  assert(m_tempSession);
-
-  PlayerInfo info;
-  row        result;
-  bool       isWhitelist = false;
-
-
-  *m_tempSession << "SELECT * FROM whitelist WHERE player_name = :player_uuid",
-      into(result), use(playerUuid, "player_uuid");
-
-  if (m_tempSession->got_data()) {
-    isWhitelist = true;
-    goto processResult;
-  }
-
-
-  *m_tempSession << "SELECT * FROM blacklist WHERE player_name = :player_uuid",
-      into(result), use(playerUuid, "player_uuid");
-
-
-  if (!m_tempSession->got_data()) {
-    return info;
-  }
-
-
-processResult:
-  return __SetPlayerInfo(info, result, isWhitelist);
-}
-
-vector<Utils::PlayerInfo>
-BedrockWhiteList::Utils::PlayerDB::GetPlayerListAsStatus(PlayerStatus status) {
-  assert(m_tempSession);
-
-  vector<PlayerInfo> info{};
-  row                result;
-  string statusStr = (status == PlayerStatus::Whitelist ? "whitelist" : "blacklist");
-
-  rowset<row> resultList =
-      m_tempSession->prepare << fmt::format("SELECT * FROM {0}", statusStr);
-
-  for (auto& item : resultList) {
-    PlayerInfo data;
-    info.push_back(__SetPlayerInfo(data, item, !!status));
-  }
-
-  return info;
-}
