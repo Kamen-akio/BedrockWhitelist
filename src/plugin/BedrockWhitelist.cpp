@@ -510,7 +510,7 @@ void BedrockWhiteList::WhiteList::RegisterPluginEvent() {
       ll::event::Listener<ll::event::PlayerJoinEvent>::create(
           [](ll::event::player::PlayerJoinEvent& ev) {
             Utils::PlayerDB& playerDB = g_config.GetSeesion();
-            auto&          player   = ev.self();
+            auto&            player   = ev.self();
             Logger           logger   = Logger("我要DEBUG");
 
 
@@ -527,7 +527,7 @@ void BedrockWhiteList::WhiteList::RegisterPluginEvent() {
               ));
 
               player.disconnect(
-                 // "'cause you are joining first time, you is kicked! "
+                  // "'cause you are joining first time, you is kicked! "
               );
 
               logger.info(
@@ -537,11 +537,13 @@ void BedrockWhiteList::WhiteList::RegisterPluginEvent() {
             }
 
             if (playerInfo.PlayerStatus == Utils::Blacklist) {
-              player.disconnect(/* fmt::format(
-                  FMT_COMPILE("You has been banned for {0} (TiemStamp)time! "),
-                  playerInfo.LastTime == -1 ? "FOREVER"
-                                            : playerInfo.LastTime.ToString()
-            )*/);
+              player.disconnect();
+              /* fmt::format(
+                FMT_COMPILE("You has been banned for {0} (TiemStamp)time! "),
+                playerInfo.LastTime == -1 ? "FOREVER"
+                                          : playerInfo.LastTime.ToString()
+              )*/
+
               logger.info(
                   "{0} 为黑名单玩家，被断开游戏连接！",
                   player.getName()

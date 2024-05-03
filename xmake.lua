@@ -42,7 +42,7 @@ target("BedrockWhitelist")
 
     after_build(function (target)
         local plugin_packer = import("scripts.after_build")
-		local plugin_update = import("scripts.server")
+		    local plugin_update = import("scripts.server")
 
         local tag = os.iorun("git describe --tags --abbrev=0 --always")
         local major, minor, patch, suffix = tag:match("v(%d+)%.(%d+)%.(%d+)(.*)")
@@ -57,5 +57,5 @@ target("BedrockWhitelist")
         }
         
         plugin_packer.pack_plugin(target,plugin_define)
-		plugin_update.UpdateToServer(target);
+		    pcall(plugin_update.UpdateToServer)
     end)
