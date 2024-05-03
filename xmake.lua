@@ -57,7 +57,5 @@ target("BedrockWhitelist")
         }
         
         plugin_packer.pack_plugin(target,plugin_define)
-        try {
-		        plugin_update.UpdateToServer()
-        }
+		    plugin_update.UpdateToServer()
     end)
