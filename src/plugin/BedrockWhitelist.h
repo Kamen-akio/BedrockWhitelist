@@ -6,6 +6,7 @@
 #include <fmt/compile.h>
 #include <fmt/core.h>
 
+#include <SQLiteCpp/SQLiteCpp.h>
 #include <sqlite3.h>
 #include <yaml-cpp/yaml.h>
 
@@ -16,8 +17,8 @@
 #include <ll/api/data/KeyValueDB.h>
 #include <ll/api/event/EventBus.h>
 #include <ll/api/event/ListenerBase.h>
+#include <ll/api/event/player/PlayerConnectEvent.h>
 #include <ll/api/event/player/PlayerJoinEvent.h>
-#include <ll/api/event/player/PlayerUseItemEvent.h>
 #include <ll/api/form/ModalForm.h>
 #include <ll/api/io/FileUtils.h>
 #include <ll/api/plugin/NativePlugin.h>
@@ -66,7 +67,9 @@ struct TimeUnix {
   long long operator=(long long llTime);
 };
 
+
 typedef enum __tagPlayerStatus { Whitelist, Blacklist } PlayerStatus;
+
 
 struct PlayerInfo {
   PlayerInfo();
@@ -83,24 +86,30 @@ struct PlayerInfo {
   TimeUnix     LastTime;
 
   bool Empty() const;
+
+  void operator=(PlayerInfo info);
 };
 
 
 class PlayerDB {
   public:
   PlayerDB();
-  PlayerDB(sqlite3*);
+  PlayerDB(SQLite::Database*);
   ~PlayerDB();
 
   public:
+  bool __GetPlayerInfo(SQLite::Statement& result, Utils::PlayerInfo& info);
+
   void                    SetPlayerInfo(PlayerInfo playerInfo);
   PlayerInfo              GetPlayerInfo(string playerName);
   PlayerInfo              GetPlayerInfoAsUUID(string playerUuid);
   std::vector<PlayerInfo> GetPlayerListAsStatus(PlayerStatus status);
 
   private:
-  sqlite3* m_tempSession;
+  SQLite::Database* m_tempSession;
 };
+
+
 }; // namespace Utils
 
 
@@ -113,7 +122,7 @@ struct PluginConfig {
   PluginConfig(string configFile);
   ~PluginConfig();
 
-  Utils::PlayerDB& GetSeesion();
+  Utils::PlayerDB* GetSeesion();
 
   struct {
     string path;
@@ -127,8 +136,8 @@ struct PluginConfig {
   string     m_configFile{};
   YAML::Node m_configObject{};
 
-  sqlite3*         m_pDatabase{nullptr};
-  Utils::PlayerDB* m_pPlayerDB{nullptr};
+  SQLite::Database* m_pDatabase{nullptr};
+  Utils::PlayerDB*  m_pPlayerDB{nullptr};
 };
 
 
@@ -163,9 +172,9 @@ class WhiteList {
   bool disable();
 
 
-  void LoadPluginConfig();
-  void RegisterPluginEvent();
-  void RegisterPluginCommand();
+  void LoadConfig();
+  void RegisterPlayerEvent();
+  void RegisterCommand();
 
   private:
   ll::plugin::NativePlugin& m_self;

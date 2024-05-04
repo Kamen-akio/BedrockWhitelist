@@ -2,9 +2,11 @@ add_rules("mode.debug", "mode.release")
 
 add_repositories("liteldev-repo https://github.com/LiteLDev/xmake-repo.git")
 
+
 add_requires("levilamina")
 add_requires("yaml-cpp")
 add_requires("sqlite3")
+add_requires("sqlitecpp", {configs = {column_metadata = true, stack_protection = true, sqlite3_external = true}})
 
 if not has_config("vs_runtime") then
     set_runtimes("MD")
@@ -27,6 +29,7 @@ target("BedrockWhitelist")
     add_packages("levilamina")
     add_packages("yaml-cpp")
     add_packages("sqlite3")
+    add_packages("sqlitecpp")
 
 
     add_includedirs("src")
