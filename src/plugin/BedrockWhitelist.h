@@ -148,6 +148,7 @@ typedef struct __tagWhitelistArgument {
   CommandSelector<Player> targetPlayer;
 } WhitelistArgument, wlArg;
 
+
 typedef struct __tagWhitelistArgumentEx1 {
   CommandSelector<Player> targetPlayer;
   Json::Value             option;
@@ -179,6 +180,7 @@ class WhiteList {
   private:
   ll::plugin::NativePlugin& m_self;
 };
+
 
 static std::unique_ptr<WhiteList> instance;
 WhiteList&                        WhiteList::getInstance() { return *instance; }
