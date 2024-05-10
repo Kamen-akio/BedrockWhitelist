@@ -4,6 +4,7 @@ add_repositories("liteldev-repo https://github.com/LiteLDev/xmake-repo.git")
 
 
 add_requires("levilamina")
+add_requires("cryptopp")
 add_requires("yaml-cpp")
 add_requires("sqlite3")
 add_requires("sqlitecpp", {configs = {column_metadata = true, stack_protection = true, sqlite3_external = true}})
@@ -27,6 +28,7 @@ target("BedrockWhitelist")
 
     add_defines("NOMINMAX", "UNICODE")
     add_packages("levilamina")
+    add_packages("cryptopp")
     add_packages("yaml-cpp")
     add_packages("sqlite3")
     add_packages("sqlitecpp")

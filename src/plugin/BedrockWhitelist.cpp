@@ -28,7 +28,7 @@ inline static bool CheckOriginAs(
 
 
 BedrockWhiteList::Utils::PlayerInfo::PlayerInfo() {
-  *this = PlayerInfo(Utils::Blacklist, "", "", -1);
+  *this = PlayerInfo(Utils::Whitelist, "", "", 0);
 }
 
 
@@ -46,7 +46,7 @@ BedrockWhiteList::Utils::PlayerInfo::PlayerInfo(
 
 
 bool BedrockWhiteList::Utils::PlayerInfo::Empty() const {
-  return PlayerName.empty() or PlayerUuid.empty() or LastTime.Time == NULL;
+  return PlayerName.empty() or PlayerUuid.empty() or LastTime.Empty();
 }
 
 
@@ -64,7 +64,9 @@ BedrockWhiteList::Utils::TimeUnix::TimeUnix() { Time = -1; }
 BedrockWhiteList::Utils::TimeUnix::TimeUnix(time_t time) { Time = time; }
 
 
-bool BedrockWhiteList::Utils::TimeUnix::Empty() const { return time == NULL; }
+bool BedrockWhiteList::Utils::TimeUnix::Empty() const {
+  return this->Time == NULL;
+}
 
 
 string BedrockWhiteList::Utils::TimeUnix::ToString() { return string(); }
@@ -108,7 +110,6 @@ BedrockWhiteList::Utils::PlayerDB::PlayerDB(SQLite::Database* session) {
 BedrockWhiteList::Utils::PlayerDB::~PlayerDB() {
   // Do not close it.
   m_tempSession = nullptr;
-  Logger("PlayerDB").info("{0}", "我被销毁了");
 }
 
 
@@ -137,10 +138,10 @@ void BedrockWhiteList::Utils::PlayerDB::SetPlayerInfo(PlayerInfo playerInfo) {
 
 
   m_tempSession->exec(fmt::format(
-      "INSERT INTO {0}(player_uuid, player_name, player_last_time) "
-      "VALUES(\"{1}\", \"{2}\", {3}) ON CONFLICT(player_uuid) "
-      "DO UPDATE SET player_uuid = \"{1}\", player_name = \"{2}\", "
-      "player_last_time = {3}; ",
+      FMT_COMPILE("INSERT INTO {0}(player_uuid, player_name, player_last_time) "
+                  "VALUES(\"{1}\", \"{2}\", {3}) ON CONFLICT(player_uuid) "
+                  "DO UPDATE SET player_uuid = \"{1}\", player_name = \"{2}\", "
+                  "player_last_time = {3}; "),
       table,
       playerInfo.PlayerUuid.c_str(),
       playerInfo.PlayerName.c_str(),
@@ -159,16 +160,15 @@ BedrockWhiteList::Utils::PlayerDB::GetPlayerInfo(string playerName) {
   SQLite::Statement query(
       *m_tempSession,
       fmt::format(
-          "SELECT * FROM whitelist WHERE player_name = \"{0}\"",
+          FMT_COMPILE("SELECT * FROM whitelist WHERE player_name = \"{0}\""),
           playerName.c_str()
       )
   );
-  info.PlayerStatus = Utils::Whitelist;
   __GetPlayerInfo(query, info);
 
 
-  bool isWhitelist = not info.Empty();
-  if (isWhitelist) {
+  if (not info.Empty()) {
+    info.PlayerStatus = Utils::Whitelist;
     return info;
   }
 
@@ -176,14 +176,15 @@ BedrockWhiteList::Utils::PlayerDB::GetPlayerInfo(string playerName) {
   query = SQLite::Statement(
       *m_tempSession,
       fmt::format(
-          "SELECT * FROM blacklist WHERE player_name = \"{0}\"",
+          FMT_COMPILE("SELECT * FROM blacklist WHERE player_name = \"{0}\""),
           playerName.c_str()
       )
   );
-  info.PlayerStatus = Utils::Blacklist;
   __GetPlayerInfo(query, info);
 
-
+  if (not info.Empty()) {
+    info.PlayerStatus = Utils::Blacklist;
+  }
   return info;
 }
 
@@ -202,13 +203,18 @@ BedrockWhiteList::Utils::PlayerDB::GetPlayerInfoAsUUID(string playerUuid) {
           playerUuid.c_str()
       )
   );
-  info.PlayerStatus = Utils::Whitelist;
   __GetPlayerInfo(query, info);
 
+  Logger("debug").info(
+      "info,{3},{0},{1},{2}",
+      info.PlayerName,
+      info.PlayerUuid,
+      (int)info.LastTime.Time,
+      (int)info.PlayerStatus
+  );
 
-  bool isWhitelist = not info.Empty();
-
-  if (isWhitelist) {
+  if (not info.Empty()) {
+    info.PlayerStatus = Utils::Whitelist;
     return info;
   }
 
@@ -220,8 +226,19 @@ BedrockWhiteList::Utils::PlayerDB::GetPlayerInfoAsUUID(string playerUuid) {
           playerUuid.c_str()
       )
   );
-  info.PlayerStatus = Utils::Blacklist;
   __GetPlayerInfo(query, info);
+
+  if (not info.Empty()) {
+    info.PlayerStatus = Utils::Blacklist;
+  }
+
+   Logger("debug").info(
+      "info,{3},{0},{1},{2}",
+      info.PlayerName,
+      info.PlayerUuid,
+      (int)info.LastTime.Time,
+      (int)info.PlayerStatus
+  );
 
 
   return info;
@@ -246,10 +263,10 @@ BedrockWhiteList::Utils::PlayerDB::GetPlayerListAsStatus(PlayerStatus status) {
   );
 
   while (__GetPlayerInfo(query, info)) {
+    info.PlayerStatus = status;
     infoList.push_back(info);
   }
 
-  info.PlayerStatus = status;
   return infoList;
 }
 
@@ -341,50 +358,57 @@ Utils::PlayerDB* BedrockWhiteList::PluginConfig::GetSeesion() {
 
 
 bool BedrockWhiteList::WhiteList::load() {
-  /*  Init client infomation.  */ {
-    const auto& manifest = getSelf().getManifest();
 
-    g_pluginInfo = fmt::format(
-        FMT_COMPILE(
-            "Plugin Information: \n"
-            "§a{0} §rv{1} {2}\n"
-            "§rRepository: §bhttps://github.com/Kamen-akio/BedrockWhitelist\n"
-            "§rDeveloper: {3}"
-        ),
-        manifest.name,
-        manifest.version->to_string(),
-        manifest.entry,
-        *manifest.author
-    );
+  const auto& manifest = getSelf().getManifest();
+
+  g_pluginInfo = fmt::format(
+      FMT_COMPILE(
+          "Plugin Information: \n"
+          "§a{0} §rv{1} {2}\n"
+          "§rRepository: §bhttps://github.com/Kamen-akio/BedrockWhitelist\n"
+          "§rDeveloper: {3}"
+      ),
+      manifest.name,
+      manifest.version->to_string(),
+      manifest.entry,
+      *manifest.author
+  );
+
+
+  const auto& print    = getSelf().getLogger();
+  const int   maxWidth = 80;
+  string      welcomeTitle =
+
+      "\n"
+      "\n"
+      "██     ██ ██   ██ ██ ████████ ██████ ██     ██ ██████ ████████\n"
+      "██     ██ ██   ██ ██    ██    ██     ██     ██ ██        ██   \n"
+      "██  █  ██ ███████ ██    ██    █████  ██     ██ ██████    ██   \n"
+      "██ ███ ██ ██   ██ ██    ██    ██     ██     ██     ██    ██   \n"
+      " ███ ███  ██   ██ ██    ██    ██████ ██████ ██ ██████    ██   \n"
+      "\n"
+      + fmt::format("{0:-^62}", "   Whitelist plugin for LeviLamina server   ")
+      + "\n"
+        "\n"
+        "\n";
+
+  istringstream iss(welcomeTitle);
+  string        output{};
+  while (std::getline(iss, output, '\n')) {
+    print.info("{0:^{1}}", output, maxWidth);
   }
 
-  /*  Print console infomation.  */ {
-    const auto& print    = getSelf().getLogger().info;
-    const int   maxWidth = 80;
-    string      welcomeTitle =
 
-        "\n"
-        "\n"
-        "██     ██ ██   ██ ██ ████████ ██████ ██     ██ ██████ ████████\n"
-        "██     ██ ██   ██ ██    ██    ██     ██     ██ ██        ██   \n"
-        "██  █  ██ ███████ ██    ██    █████  ██     ██ ██████    ██   \n"
-        "██ ███ ██ ██   ██ ██    ██    ██     ██     ██     ██    ██   \n"
-        " ███ ███  ██   ██ ██    ██    ██████ ██████ ██ ██████    ██   \n"
-        "\n"
-        + fmt::format(
-            "{0:-^62}",
-            "   Whitelist plugin for LeviLamina server   "
-        )
-        + "\n"
-          "\n"
-          "\n";
+  // Internationalization
+  const string localePath{getSelf().getLangDir().string()};
 
-    istringstream iss(welcomeTitle);
-    string        output{};
-    while (std::getline(iss, output, '\n')) {
-      print("{0:^{1}}", output, maxWidth);
-    }
+  if (filesystem::exists(localePath)) {
+    i18n::load(localePath);
+    return true;
   }
+
+  print.warn("Failed to find lang path! please reinstall the plugin. ");
+
   return true;
 }
 
@@ -429,7 +453,7 @@ void BedrockWhiteList::WhiteList::LoadConfig() {
 
 
     if (not ss.is_open()) {
-      throw std::runtime_error("Could not create config file! ");
+      throw std::runtime_error("Cannot create config file. "_tr());
     }
 
 
@@ -459,7 +483,7 @@ void BedrockWhiteList::WhiteList::LoadConfig() {
     g_config = new PluginConfig(configPath);
 
   } catch (std::exception) {
-    getSelf().getLogger().warn("Incorrect config file! ");
+    getSelf().getLogger().warn("Incorrect config file. "_tr());
   }
 }
 
@@ -467,7 +491,7 @@ void BedrockWhiteList::WhiteList::LoadConfig() {
 void BedrockWhiteList::WhiteList::RegisterCommand() {
   const auto commandRegistry = service::getCommandRegistry();
   if (!commandRegistry) {
-    throw std::runtime_error("Failed to get command registry");
+    throw std::runtime_error("Failed to get command registry. "_tr());
   }
 
 
@@ -489,6 +513,11 @@ void BedrockWhiteList::WhiteList::RegisterCommand() {
     if (CheckOriginAs(origin, {CommandOriginType::Player})) {
       const auto& entity = origin.getEntity();
       static_cast<Player*>(entity)->sendMessage(g_pluginInfo);
+      static_cast<Player*>(entity)->sendMessage(fmt::format(
+          "Debug:\n"
+          "System ID: {0}",
+          Utils::Windows::GetDeviceToken()
+      ));
     }
   };
   command.overload().execute<helpCmdCallback>();
@@ -548,6 +577,8 @@ void BedrockWhiteList::WhiteList::RegisterPlayerEvent() {
             logger.info("Player Connected! {0}, 踹飞！", playerInfo.PlayerName);
 
             if (playerInfo.Empty()) {
+
+
               playerDB->SetPlayerInfo(Utils::PlayerInfo(
                   Utils::Blacklist,
                   player.getName(),
@@ -555,38 +586,231 @@ void BedrockWhiteList::WhiteList::RegisterPlayerEvent() {
                   -1
               ));
 
+
               player.disconnect(
-                  "'cause you are joining first time, you have been banned! "
+                  "You are disconnected because you are not whitelisted. "_tr()
               );
 
+
               logger.info(
-                  "{0} 为第一次加入，已拉入黑名单且被断开连接",
-                  player.getName()
+                  "{0} is a newcomer without whitelist, and is disconnected. "_tr(
+                      player.getName()
+                  )
               );
             }
 
+            logger.info("time {0}", playerInfo.LastTime.Time);
             if (playerInfo.PlayerStatus == Utils::Blacklist) {
-              player.disconnect(fmt::format(
-                  FMT_COMPILE("You has been banned for {0} (TiemStamp)time! "),
-                  playerInfo.LastTime == -1 ? "FOREVER"
-                                            : playerInfo.LastTime.ToString()
-              ));
-              /* fmt::format(
-                FMT_COMPILE("You has been banned for {0} (TiemStamp)time! "),
-                playerInfo.LastTime == -1 ? "FOREVER"
-                                          : playerInfo.LastTime.ToString()
-              )*/
+              player.disconnect(
+                  playerInfo.LastTime == -1
+                      ? "You are on the blacklist forever. "_tr()
+                      : "You are on the blacklist until {0}. "_tr(
+                          playerInfo.LastTime.ToString()
+                      )
+              );
+
 
               logger.info(
-                  "{0} 为黑名单玩家，被断开游戏连接！",
-                  player.getName()
+                  "{0} is on the blacklist and is auto disconnected. "_tr(
+                      player.getName()
+                  )
               );
             }
           },
           ll::event::EventPriority::High
       );
+
   eventBus.addListener(playerJoinEvent);
 }
 
 
 LL_REGISTER_PLUGIN(BedrockWhiteList::WhiteList, BedrockWhiteList::instance);
+
+string BedrockWhiteList::Utils::Windows::GetDeviceToken() {
+
+  auto hash = Utils::Crypt::SHA256(
+      "cpu-id~" + GetCpuId() + "main-device-id~" + GetDisksId()
+      + "|BEDROCK_WHITELIST_2024|KEY_ONLY|"
+  );
+
+  return hash;
+
+}
+
+
+string BedrockWhiteList::Utils::Windows::GetCpuId() {
+  array<int, 4> dwBuf{0};
+  string        cpuId{0};
+  __cpuidex(dwBuf.data(), 1, 1);
+
+  std::ostringstream oss;
+  oss << std::hex << std::uppercase << std::setfill('0') << std::setw(8)
+      << dwBuf[0];
+  cpuId = oss.str();
+
+  return cpuId;
+}
+
+
+string BedrockWhiteList::Utils::Windows::GetDisksId() {
+  bool result{false};
+
+  auto hDevice = CreateFileA(
+      R"(\\.\PHYSICALDRIVE0)",
+      GENERIC_READ | GENERIC_WRITE,
+      FILE_SHARE_READ | FILE_SHARE_WRITE,
+      NULL,
+      OPEN_EXISTING,
+      NULL,
+      NULL
+  );
+
+  if (hDevice == INVALID_HANDLE_VALUE) {
+    throw std::runtime_error(R"(Could open \\.\PHYSICALDRIVE0. )");
+  }
+
+  GETVERSIONINPARAMS outBufferIDE{};
+  result = DeviceIoControl(
+      hDevice,
+      SMART_GET_VERSION,
+      NULL,
+      NULL,
+      &outBufferIDE,
+      sizeof(GETVERSIONINPARAMS),
+      nullptr,
+      nullptr
+  );
+
+  if (result == FALSE) {
+    CloseHandle(hDevice);
+    return "";
+  }
+
+  SENDCMDINPARAMS inBufferIDE{};
+  inBufferIDE.cBufferSize                  = 512;
+  inBufferIDE.irDriveRegs.bSectorCountReg  = 1;
+  inBufferIDE.irDriveRegs.bSectorNumberReg = 1;
+  inBufferIDE.irDriveRegs.bDriveHeadReg    = 160;
+  inBufferIDE.irDriveRegs.bCommandReg      = outBufferIDE.bIDEDeviceMap;
+
+  if (inBufferIDE.irDriveRegs.bCommandReg == 0) {
+    inBufferIDE.irDriveRegs.bCommandReg = 161;
+  } else {
+    inBufferIDE.irDriveRegs.bCommandReg = 236;
+  }
+
+
+  char outBuffer[544]{0};
+  result = DeviceIoControl(
+      hDevice,
+      SMART_RCV_DRIVE_DATA,
+      &inBufferIDE,
+      32,
+      &outBuffer,
+      544,
+      nullptr,
+      nullptr
+  );
+
+  if (result == FALSE) {
+    CloseHandle(hDevice);
+    return "";
+  }
+
+
+  inBufferIDE.irDriveRegs.bCommandReg = 236;
+
+  result = DeviceIoControl(
+      hDevice,
+      SMART_RCV_DRIVE_DATA,
+      &inBufferIDE,
+      32,
+      &outBuffer,
+      544,
+      nullptr,
+      nullptr
+  );
+
+  if (result == FALSE) {
+    CloseHandle(hDevice);
+    return "";
+  }
+
+  IDINFO IDEdata{};
+  memcpy_s(&IDEdata, 256, &outBuffer[16], 256);
+  CloseHandle(hDevice);
+
+
+  char word[4]{0, 0, 0, 0};
+  int  index{0}, total{0};
+
+  for (index = 0; index < 40; index++) {
+    if (index % 2 == 0) {
+      word[1]  = IDEdata.sModelNumber[index];
+      total   += *(int*)&word;
+      continue;
+    }
+    word[0] = IDEdata.sModelNumber[index];
+  }
+
+  for (index = 0; index < 8; index++) {
+    if (index % 2 == 0) {
+      word[1]  = IDEdata.sFirmwareRev[index];
+      total   += *(int*)&word;
+      continue;
+    }
+    word[0] = IDEdata.sFirmwareRev[index];
+  }
+
+  for (index = 0; index < 20; index++) {
+    if (index % 2 == 0) {
+      word[1]  = IDEdata.sSerialNumber[index];
+      total   += *(int*)&word;
+      continue;
+    }
+    word[0] = IDEdata.sSerialNumber[index];
+  }
+
+  int ret = IDEdata.wBufferSize + IDEdata.wNumSectorsPerTrack
+          + IDEdata.wNumHeads + IDEdata.wNumCyls;
+
+  if (ret * 0x10000 + total <= 0xffffffff) {
+    ret = (ret << 16) + total;
+  } else {
+    ret = (((ret - 1) % 0xffff + 1) << 16) + total % 0xffff;
+  }
+
+  std::stringstream ss{};
+  ss << std::hex << ret << std::endl;
+
+  return string(ss.str());
+}
+
+
+string BedrockWhiteList::Utils::Crypt::SHA256(string data) {
+
+  auto const util_string2hex = [](const string& rawData) -> string {
+    static const char* pattern    = "0123456789ABCDEF";
+    ullong             dataLength = rawData.length();
+
+    std::string ret;
+    ret.reserve(2 * dataLength);
+    for (size_t i = 0; i < dataLength; ++i) {
+      const uchar c = rawData[i];
+      ret.push_back(pattern[c >> 4]);
+      ret.push_back(pattern[c & 15]);
+    }
+    return ret;
+  };
+
+  uchar* const pData       = (uchar*)data.data();
+  ullong       nDataLength = data.length();
+
+  uchar resultData[CryptoPP::SHA256::DIGESTSIZE]{};
+
+  CryptoPP::SHA256().CalculateDigest(resultData, pData, nDataLength);
+
+  return util_string2hex(
+      std::string((char*)resultData, CryptoPP::SHA256::DIGESTSIZE)
+  );
+}

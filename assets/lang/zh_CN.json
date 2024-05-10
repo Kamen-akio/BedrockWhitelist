@@ -1,0 +1,10 @@
+{
+  "Cannot create config file. ": "无法创建配置文件。",
+  "Incorrect config file. ": "配置文件错误。",
+  "Failed to get command registry. ": "获取命令注册表失败。",
+  "You are disconnected because you are not whitelisted. ": "您已断开连接，因为您没有列入白名单。",
+  "{0} is a newcomer without whitelist, and is disconnected. ": "{0} 是没有白名单的新人，已断开连接。",
+  "You are on the blacklist forever. ": "你永远被列入黑名单。",
+  "You are on the blacklist until {0}. ": "你的黑名单一直到 {0}。",
+  "{0} is on the blacklist and is auto disconnected. ": "{0} 已列入黑名单并自动断开连接。"
+}

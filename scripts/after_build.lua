@@ -104,6 +104,10 @@ function pack_plugin(target,plugin_define)
 
         formattedmanifest = string_formatter(manifest, plugin_define)
         io.writefile(manifestfile,formattedmanifest)
+		
+		local langdir = path.join(os.projectdir(), "assets", "lang")
+		os.cp(langdir, outputdir)
+		
         cprint("${bright green}[Plugin Packer]: ${reset}plugin already generated to " .. outputdir)
     else
         cprint("${bright yellow}warn: ${reset}not found manifest.json in root dir!")
